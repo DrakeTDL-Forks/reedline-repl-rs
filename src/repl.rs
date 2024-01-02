@@ -10,8 +10,8 @@ use clap::Command;
 use nu_ansi_term::{Color, Style};
 use reedline::{
     self, default_emacs_keybindings, ColumnarMenu, DefaultHinter, DefaultValidator, Emacs,
-    ExampleHighlighter, FileBackedHistory, KeyCode, KeyModifiers, Keybindings, Reedline,
-    ReedlineEvent, ReedlineMenu, Signal,
+    ExampleHighlighter, ExternalPrinter, FileBackedHistory, KeyCode, KeyModifiers, Keybindings,
+    Reedline, ReedlineEvent, ReedlineMenu, Signal,
 };
 use std::boxed::Box;
 use std::collections::HashMap;
@@ -40,6 +40,7 @@ pub struct Repl<Context, E: Display> {
     history_capacity: Option<usize>,
     context: Context,
     keybindings: Keybindings,
+    external_printer: ExternalPrinter<String>,
     hinter_style: Style,
     hinter_enabled: bool,
     quick_completions: bool,
@@ -83,6 +84,7 @@ where
             prompt,
             context,
             keybindings,
+            external_printer: ExternalPrinter::new(2048),
             stop_on_ctrl_c: false,
             stop_on_ctrl_d: true,
             error_handler: default_error_handler,
@@ -258,6 +260,25 @@ where
         self.keybindings.remove_binding(modifier, key_code);
 
         self
+    }
+
+    /// Access the external printer to print messages on the console
+    ///
+    /// The external printer can be used to print messages on the console without a command running.
+    ///
+    /// Example:
+    ///
+    /// ```rust,no_run
+    /// use reedline_repl_rs::{Repl, Error};
+    /// let mut repl: Repl<(), Error> = Repl::new(());
+    /// let printer = repl.external_printer();
+    /// std::thread::spawn(move || {
+    ///     printer.print("hello world".to_owned()).expect("failed to print");
+    /// });
+    /// repl.run().expect("failed to run");
+    /// ```
+    pub fn external_printer(&self) -> ExternalPrinter<String> {
+        self.external_printer.clone()
     }
 
     /// Add a command to your REPL
@@ -521,7 +542,8 @@ where
             .with_highlighter(Box::new(ExampleHighlighter::new(valid_commands.clone())))
             .with_validator(validator)
             .with_partial_completions(self.partial_completions)
-            .with_quick_completions(self.quick_completions);
+            .with_quick_completions(self.quick_completions)
+            .with_external_printer(self.external_printer.clone());
 
         if self.hinter_enabled {
             line_editor = line_editor.with_hinter(Box::new(
